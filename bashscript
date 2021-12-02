@@ -1,0 +1,109 @@
+#!/bin/bash
+# vim:set nowrap:
+##--- Help
+## usage: HELP_SCNAME [--help|-h] [--long-opt|-o <optarg>] <mandatory arg>
+## 	where	--help|-h		Prints this help screen.
+## 		--long-opt|-o <optarg>	description DEFAULT_VALUE
+## 
+## This is Version @VERSION@.@REVISION@
+##--- Help end
+# The name with which this script was called.
+SCNAME="${0##*/}"
+
+# Relevant defaults for this script. Especially in this form used in the help
+# screen.
+declare -A default=(
+	[bin_dirs]='/bin /usr/bin /usr/local/bin'
+	[sbin_dirs]='/sbin /usr/sbin /usr/local/sbin'
+	[value]='foobar'
+)
+# Now make these variables readonly.
+declare -r default
+
+# Prepare processing of positional argument processing.
+declare -ar posargs_list=( POSARG_ONE POSARG_TWO )
+declare -i posargs_counter=0
+function assignposarg() {
+	if [ ${posargs_counter} -ge ${#posargs_list[@]} ]; then
+		return 50
+	else
+		local -n posargs_varref="${posargs_list[$((posargs_counter++))]}"
+		posargs_varref="${@}"
+		return 0
+	fi
+}
+
+# Here we leave some environment variables alone if they are already
+# set but supply them with defaults if they are unset so far.
+: ${TMP:=/tmp}
+: ${TMPDIR:=${TMP}}
+: ${THISSYS_VALUE:=${default[value]}}
+
+TEMPFILE="${TMPDIR}/${SCNAME}.$$.temp"
+
+longopt=''
+filename=''
+
+trap 'rm -f "${TEMPFILE}"' EXIT
+
+function help () {
+	sed '
+		/^##--- Help$/,/^##--- Help end$/ {
+			/^##--- Help$/ d
+			/^##--- Help end$/ d
+			s/^## //
+		       	s/HELP_SCNAME/'"${SCNAME}"'/g
+			s/DEFAULT_VALUE/'"${default[value]}"'/g
+			p
+		}
+		d' < $0
+}
+
+function message () {
+	local msgtype="${1}" messagetext="${2}"
+	case "${msgtype}" in
+		warn*|err*|crit*|alert|emerg*)
+			echo "${SCNAME}"': '"${msgtype^}"': '"${messagetext}" >&2;;
+		*)
+			echo "${SCNAME}"': '"${msgtype^}"': '"${messagetext}";;
+	esac
+}
+
+function findbinary () {
+	test -x "${1}" \
+		&& { echo "${1}"; return 0; } \
+		|| {	local candidate
+			for candidate in ${2}; do
+				test -x "${candidate}/${1##*/}" && \
+				{ echo "${candidate}/${1##*/}"; return 0; }
+			done
+			candidate="$(which ${1##*/})" && { echo "${candidate}"; return 0; }
+		}
+	echo "${1}"; return 10
+}
+
+binary="$(findbinary '/bin/binary' "${default[bin_dirs]} ${default[sbin_dirs]}")" \
+	&& eval 'function binary () { '"${binary} "'"${@}"; }' \
+	|| { message alert "'${binary##*/}'"' can not be found on this system!'; exit 10; }
+
+while [ $# -gt 0 ]; do
+	case "$1" in
+		--help|-h)
+			help
+			exit;;
+		--longopt|-s)
+			longopt="${2}"; shift;;
+		-*)
+			message error 'Unknow option '"'${1}'"'!'
+			exit 10;;
+		*)
+			if ! assignposarg "${1}"; then
+				message err 'More positional parameters than expected!'
+			fi;;
+	esac
+	shift
+done
+
+#-- Main program part
+echo 'POSARG_ONE='"'${POSARG_ONE}'"
+echo 'POSARG_TWO='"'${POSARG_TWO}'"
